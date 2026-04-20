@@ -1,0 +1,25 @@
+# Credentials — NEVER commit
+.env
+api_credentials*.json
+credentials.json
+*.json.bak
+*.pem
+*.key
+
+# Python cache / virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Snapshot raw JSON (can be large; commit selectively)
+snapshots/*.json
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
