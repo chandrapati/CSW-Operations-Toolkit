@@ -87,17 +87,39 @@ def compute_signature(secret, method, path, checksum, content_type, timestamp):
 
 
 def make_request(method, path, body=None, params=None):
-    """Execute an authenticated CSW API request and return a parsed result dict."""
+    """
+    Execute an authenticated CSW API request and return a parsed result dict.
+
+    HMAC-SHA256 authentication flow:
+      1. Build canonical request line (METHOD\\nPATH\\nCHECKSUM\\nCONTENT_TYPE\\nTIMESTAMP\\n)
+      2. Compute HMAC-SHA256(secret, canonical_request), base64 encode the digest
+      3. Send the signature in the Authorization header along with the API key (Id header)
+         and the same timestamp used to sign
+
+    Args:
+        method: HTTP method (GET, POST, PUT, DELETE)
+        path:   API path starting with /openapi/v1/...
+        body:   Optional request body (dict, list, or JSON string)
+        params: Optional dict of query parameters — appended to path BEFORE signing
+
+    Returns:
+        dict with keys:
+          - status: HTTP status code (0 if connection failed)
+          - data:   parsed JSON response or raw text
+          - error:  (only on failure) error description
+    """
     base_url, api_key, api_secret, verify_ssl = get_config()
 
+    # Query parameters must be appended before signing — signature covers the full path
     if params:
-        # The signed path must match the request URL exactly, including the query string.
         path = f"{path}?{urllib.parse.urlencode(params)}"
 
     url          = f"{base_url}{path}"
     content_type = "application/json"
+    # CSW expects ISO 8601 timestamp in UTC with explicit +0000 offset
     timestamp    = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+0000")
 
+    # Normalize body to bytes for signing and transmission
     body_bytes = b""
     if body:
         if isinstance(body, str):
@@ -105,17 +127,20 @@ def make_request(method, path, body=None, params=None):
         elif isinstance(body, (dict, list)):
             body_bytes = json.dumps(body).encode("utf-8")
 
-    # Canonical checksum is the SHA-256 hex of the body for POST/PUT with a body; otherwise the empty string (including POST/PUT with no body).
+    # Body checksum is only included for POST/PUT with a non-empty body.
+    # For GET/DELETE and empty POST/PUT, checksum must be the empty string.
     checksum = hashlib.sha256(body_bytes).hexdigest() if method.upper() in ("POST", "PUT") and body_bytes else ""
     signature = compute_signature(api_secret, method.upper(), path, checksum, content_type, timestamp)
 
+    # Standard CSW API headers
     headers = {
         "Content-Type":  content_type,
-        "Id":            api_key,
-        "Authorization": signature,
-        "Timestamp":     timestamp,
+        "Id":            api_key,       # API key identifier
+        "Authorization": signature,     # HMAC-SHA256 signature (base64)
+        "Timestamp":     timestamp,     # Must match the timestamp used in signature
         "User-Agent":    "csw-tme-toolkit/1.0",
     }
+    # X-Tetration-Cksum required only when a body checksum was computed
     if checksum:
         headers["X-Tetration-Cksum"] = checksum
 
@@ -126,25 +151,30 @@ def make_request(method, path, body=None, params=None):
         method=method.upper(),
     )
 
+    # SSL context — bypass verification if requested (for corporate TLS proxies)
     if not verify_ssl:
         import ssl
         ctx = ssl.create_default_context()
-        # Insecure: only for broken corporate TLS inspection; avoids hostname/Certificate mismatch with proxies.
+        # INSECURE: only use when corporate TLS inspection breaks cert validation.
+        # Proper fix: install the corporate root CA in the system trust store.
         ctx.check_hostname = False
         ctx.verify_mode    = ssl.CERT_NONE
     else:
         ctx = None
 
+    # Execute the request and parse response
     try:
         kwargs = {"context": ctx} if ctx else {}
         with urllib.request.urlopen(req, **kwargs) as resp:
             raw = resp.read().decode("utf-8")
+            # Attempt JSON decode; fall back to raw string if response isn't JSON
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
                 data = raw
             return {"status": resp.status, "data": data}
     except urllib.error.HTTPError as e:
+        # HTTP error response — still try to parse body for error details
         raw = e.read().decode("utf-8", errors="replace")
         try:
             err_data = json.loads(raw)
@@ -152,6 +182,7 @@ def make_request(method, path, body=None, params=None):
             err_data = raw
         return {"status": e.code, "error": str(e.reason), "data": err_data}
     except urllib.error.URLError as e:
+        # Network-level failure (DNS, connection refused, TLS handshake, etc.)
         return {"status": 0, "error": f"Connection failed: {e.reason}", "data": None}
 
 
