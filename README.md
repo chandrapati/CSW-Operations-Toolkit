@@ -323,6 +323,7 @@ CSW_POV_Template/
 ├── README.md                 # This file
 │
 ├── csw_api.py                # Core HMAC API client (imported by all scripts)
+├── csw_helpers.py            # Shared utilities (pagination, sensor map, slugging)
 │
 ├── api_test_suite.py         # API capability validation
 ├── cluster_snapshot.py       # Full cluster snapshot
@@ -345,6 +346,34 @@ CSW_POV_Template/
 └── snapshots/                # JSON snapshots and CSV exports (partially git-ignored)
     └── .gitkeep
 ```
+
+### Shared helpers (`csw_helpers.py`)
+
+A small utilities module that consolidates patterns previously duplicated
+across the suite. Existing scripts use it; new scripts should reach for
+these helpers before reimplementing the same plumbing.
+
+| Helper | What it replaces | Used by |
+| --- | --- | --- |
+| `paginate(method, path, body=, params=, batch_size=, max_pages=, sleep=)` | Three near-identical offset-cursor `while True` loops in `download_flows.py`, `download_conversations.py`, `query_long_lived_processes.py`. Yields `(page_number, results)` tuples so callers keep their own progress display. | `download_flows.py`, `download_conversations.py`, `query_long_lived_processes.py` |
+| `fetch_all_sensors()` | Four copies of "GET `/sensors`, then handle `dict-with-results` vs bare-list response" (was in `generate_vuln_report.py`, `generate_forensics_report.py`, `cluster_snapshot.py`, `api_test_suite.py`). Auto-falls back to pagination if the cluster returns a continuation cursor. | `generate_vuln_report.py`, `generate_forensics_report.py` |
+| `build_sensor_map(sensors=None)` | New. Returns `ip → {uuid, hostname, agent_type, platform}` for fast workload enrichment in any new report that needs to translate IPs into agents. | (available for new scripts) |
+| `safe_filename(name, max_length=120)` | Ad-hoc `name.replace(":", "_").replace(" ", "_")` slugging (was in `download_conversations.py`). Handles full set of filesystem-unfriendly characters. | `download_conversations.py` |
+| `extract_results(response)` | The `isinstance(data, list) / dict / "results" / "items"` shape-handling pattern that exists in many places. Always returns a list, never raises. | (foundation for `fetch_all_sensors`) |
+| `flatten_record(record, fields, aliases)` | New. CSV-friendly projection that joins list fields with `; `, JSON-stringifies nested dicts, and reads through alias keys for irregular fields like `user_orchestrator_Workload Type`. | (available for new scripts) |
+| `AGENT_TYPES` | Constants for `agent_type` strings (`ENFORCER`, `VISIBILITY`, `UNIVERSAL`, …) so consumers don't sprinkle string literals through their code. | (available for new scripts) |
+| `KNOWN_FIELD_ALIASES` | Mapping for the known space-in-key irregularities that come back from CSW. Used by `flatten_record()`. | (available for new scripts) |
+
+Self-test (no API needed):
+
+```bash
+python3 csw_helpers.py
+```
+
+> **Note on `cluster_snapshot.py`:** This script shells out to `csw_api.py`
+> via `subprocess` rather than importing it. It already has its own local
+> `safe_list()` helper and is intentionally left untouched — retrofitting it
+> would require switching its integration model and isn't worth the churn.
 
 ---
 
