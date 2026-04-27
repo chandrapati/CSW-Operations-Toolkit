@@ -2,17 +2,56 @@
 """
 download_flows.py — Download filtered flow data from the CSW cluster
 --------------------------------------------------------------------
-Queries the CSW flowsearch API with a configurable scope-based filter
-and downloads all matching flows to CSV.
 
-Default filter (segmentation use-case):
-  - Flows where EITHER consumer OR provider is in the consumer scope
-  - AND EITHER consumer OR provider is in the provider scope
-  - EXCLUDING flows sourced from NetFlow collectors
+What this script is for (plain English)
+---------------------------------------
+A **flow** in CSW is one record describing a network connection: which
+two hosts talked, on which port, using which protocol, how many bytes
+moved, and (if a policy was active) whether the connection was permitted
+or rejected. The CSW cluster collects flows from every sensor it has, so
+on a busy network this is millions of records per day.
 
-Configure default scopes via --consumer-scope and --provider-scope,
-or set them in the DEFAULT_CONSUMER_SCOPE / DEFAULT_PROVIDER_SCOPE
-constants below for your POV.
+This script is the workhorse for "show me all the conversations between
+group A and group B over the last day" - the bread-and-butter question
+when planning microsegmentation policy. It does this by:
+
+  1. Asking the CSW ``/flowsearch`` API for flows where one end of the
+     connection is in **consumer scope A** and the other end is in
+     **provider scope B** (terms explained below).
+  2. Paginating through the results 100 at a time (the helper
+     ``csw_helpers.paginate()`` handles the loop).
+  3. Writing the lot to a CSV file under ``snapshots/`` so the customer
+     can open it in Excel.
+
+Key terms
+---------
+  * **Scope**: a logical group of workloads. Scopes are arranged in a
+    tree (e.g. ``Default:Production:Database``), and any workload that
+    matches the scope's filter rule belongs to that scope plus all of
+    its parents. Scopes are how CSW expresses "all my databases" or
+    "anything in our staging environment" without naming individual IPs.
+  * **Consumer / Provider**: CSW's words for "client side" and "server
+    side" of a connection. The consumer is the one initiating the TCP
+    handshake; the provider is the one accepting it.
+  * **NetFlow** flows: flows reported by an external NetFlow collector
+    (router or switch) instead of by a CSW agent. They are lower
+    fidelity (no process info, no policy decision). This script
+    excludes them by default - turn them back on with
+    ``--include-netflow`` if you have no agent coverage on the segment.
+
+Default filter logic, in plain English
+--------------------------------------
+"Show me flows where one endpoint is somewhere in the consumer scope's
+tree AND the other endpoint is somewhere in the provider scope's tree,
+excluding anything that was reported only via NetFlow."
+
+That is exactly the right filter for "what does group A say to group B?"
+
+Configuration
+-------------
+Set ``DEFAULT_CONSUMER_SCOPE`` / ``DEFAULT_PROVIDER_SCOPE`` /
+``DEFAULT_ROOT_SCOPE`` below for your POV, or pass them on the command
+line each time.
 
 Usage:
     python3 download_flows.py --consumer-scope "root:Internal:ScopeA" --provider-scope "root:Internal:ScopeB"
@@ -33,6 +72,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import csw_api
+import csw_helpers
 
 csw_api._load_dotenv()
 
@@ -75,9 +115,23 @@ CSV_FIELDS = [
 def build_scope_filter(consumer_scope, provider_scope, include_netflow=False):
     """Build a nested CSW flowsearch filter from scope names.
 
-    The CSW flow data stores scope membership as arrays (each endpoint
-    belongs to multiple scopes in the hierarchy).  The "contains" filter
-    type checks whether the specified value appears anywhere in the array.
+    Quick mental model of how scope membership is stored in flow records:
+    each flow record carries TWO arrays - ``src_scope_name`` and
+    ``dst_scope_name`` - listing every scope each endpoint belongs to
+    (workloads belong to many scopes simultaneously, one per level of
+    the scope tree). To check "is endpoint X in scope S?" you ask the
+    API "does the array contain S?".
+
+    The filter we build is structured logically as:
+
+        (src OR dst is in consumer_scope)
+        AND
+        (src OR dst is in provider_scope)
+        AND NOT (the flow was reported by a NetFlow collector)
+
+    The ``OR`` is important: CSW doesn't know in advance which side of
+    the connection is the "consumer" and which is the "provider", so we
+    accept either.
 
     Returns a dict suitable for the "filter" field of the flowsearch body.
     """
@@ -126,57 +180,28 @@ def build_scope_filter(consumer_scope, provider_scope, include_netflow=False):
 def download_flows(flow_filter, root_scope, t0, t1):
     """Paginate through the flowsearch API and collect all matching flows.
 
-    The CSW API returns at most BATCH_SIZE flows per call and provides an
-    opaque "offset" token for cursor-based pagination.  We loop until
-    either fewer than BATCH_SIZE results are returned (last page) or the
-    offset token is absent.
+    Uses the shared ``csw_helpers.paginate()`` helper for the offset-cursor
+    loop, rate limiting, and graceful error termination. Caller retains
+    control over progress display.
     """
     all_flows = []
-    offset = ""
-    page = 0
+    body = {
+        "t0": t0,
+        "t1": t1,
+        "filter": flow_filter,
+        "scopeName": root_scope,
+    }
 
-    while True:
-        page += 1
-        body = {
-            "t0": t0,
-            "t1": t1,
-            "filter": flow_filter,
-            "scopeName": root_scope,
-            "limit": BATCH_SIZE,
-        }
-        if offset:
-            body["offset"] = offset
-
-        r = csw_api.make_request("POST", "/openapi/v1/flowsearch", body=body)
-        status = r.get("status")
-
-        if status != 200:
-            print(f"\n  API error on page {page}: HTTP {status}")
-            err = r.get("data", {})
-            if isinstance(err, dict):
-                print(f"      {err.get('error', err)}")
-            break
-
-        data = r.get("data", {})
-        if not isinstance(data, dict):
-            break
-
-        results = data.get("results", [])
+    for page, results in csw_helpers.paginate(
+        "POST", "/openapi/v1/flowsearch",
+        body=body, batch_size=BATCH_SIZE, sleep=0.2,
+    ):
         all_flows.extend(results)
         print(
             f"\r  Page {page}: +{len(results)} flows "
             f"(total: {len(all_flows):,})",
             end="", flush=True,
         )
-
-        if len(results) < BATCH_SIZE:
-            break
-
-        offset = data.get("offset", "")
-        if not offset:
-            break
-
-        time.sleep(0.2)
 
     print()
     return all_flows

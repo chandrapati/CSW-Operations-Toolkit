@@ -2,8 +2,48 @@
 """
 generate_vuln_report.py — CSW Vulnerability Assessment Report
 --------------------------------------------------------------
-Scans every workload (sensor) in the CSW cluster for known vulnerabilities
-and installed software packages, then generates:
+
+What this script is for (plain English)
+---------------------------------------
+Every CSW agent on a Linux/Windows host enumerates the software packages
+installed on that host (rpm/dpkg/Windows update inventory). CSW
+correlates each of those package names + versions against a database of
+public **CVEs** (Common Vulnerabilities and Exposures - the standardised
+catalogue of known security flaws, e.g. ``CVE-2024-12345``). The result
+is "host X has package Y, package Y has known flaw Z, here's the
+severity".
+
+This script pulls all of that data via the API, aggregates it, and
+produces a customer-ready report. It is the answer to "give me a
+spreadsheet of every vulnerable thing in my fleet, ranked by how scary
+it is".
+
+Three things make this richer than a vanilla CVE list:
+
+  * **CVM** (Cisco Vulnerability Management, formerly Kenna): on top of
+    the raw CVE severity (``CRITICAL``/``HIGH``/etc.), CSW exposes a
+    risk score from CVM that incorporates real-world exploit
+    intelligence. A medium-severity CVE that's actively being weaponised
+    in the wild scores higher than a critical-severity one with no known
+    exploit. Look for the fields ``cvm_score``,
+    ``cvm_active_internet_breach``, and ``cvm_malware_exploitable``.
+  * **Workload context**: the report rolls vulnerabilities up by host,
+    so you can see "this one server has 47 CVEs, fix it first" rather
+    than just a list of CVE IDs.
+  * **Software inventory**: a side-output listing every package
+    installed everywhere - useful for "do we have log4j anywhere?"
+    type questions.
+
+How the data flow works
+-----------------------
+  1. Get the list of every sensor in the cluster (one API call).
+  2. For each sensor, ask the API for its vulnerabilities AND its
+     installed packages (two API calls per host). This is where the
+     bulk of the time goes - a 500-host fleet means 1000 API calls,
+     which is why the script prints progress.
+  3. Aggregate, sort, and emit HTML + CSV.
+
+Outputs:
 
   1. A self-contained HTML report with:
      - Executive KPI summary (total hosts, CVEs, critical/high counts)
@@ -14,7 +54,7 @@ and installed software packages, then generates:
      - Per-host vulnerability detail with affected packages
      - Software inventory summary
 
-  2. A CSV export of all vulnerabilities for offline analysis
+  2. A CSV export of all vulnerabilities for offline analysis (Excel-friendly)
 
 Usage:
     python3 generate_vuln_report.py
@@ -43,6 +83,7 @@ from collections import Counter, defaultdict
 # Ensure sibling csw_api module is importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import csw_api
+import csw_helpers
 
 # Load credentials from .env
 csw_api._load_dotenv()
@@ -52,42 +93,31 @@ csw_api._load_dotenv()
 # Data collection — scan all workloads for vulnerabilities
 # ──────────────────────────────────────────────────────────────
 
-def fetch_all_sensors():
-    """
-    Retrieve the full list of sensors (workloads) from the cluster.
-
-    The /sensors endpoint may return all results in a single page (no
-    pagination params on some cluster versions) or support limit/offset.
-    We try the simple call first and fall back to pagination if needed.
-
-    Returns:
-        list of sensor dicts, each containing uuid, host_name, interfaces, etc.
-    """
-    # First attempt: simple GET without pagination (works on most clusters)
-    r = csw_api.make_request("GET", "/openapi/v1/sensors")
-    if r.get("status") != 200:
-        return []
-
-    data = r.get("data", {})
-    if isinstance(data, dict):
-        results = data.get("results", [])
-    elif isinstance(data, list):
-        results = data
-    else:
-        results = []
-
-    return results
+# Sensor enumeration is handled by csw_helpers.fetch_all_sensors(), which
+# transparently handles single-page and paginated cluster variants.
+fetch_all_sensors = csw_helpers.fetch_all_sensors
 
 
 def scan_host(uuid):
     """
     Query vulnerabilities and packages for a single workload by UUID.
 
+    The CSW API does NOT have a "give me everything for every host" bulk
+    endpoint - vulnerabilities and packages are scoped per-workload. So
+    we issue two HTTP calls per host: one for CVEs, one for the package
+    inventory. This is the slow part of the script; see the progress
+    bar in ``main()``.
+
+    On any per-host failure we return empty lists rather than aborting
+    the whole scan. A single dead agent shouldn't break a 500-host
+    sweep.
+
     Args:
-        uuid: workload UUID from the sensor record
+        uuid: workload UUID (from the ``uuid`` field on a sensor record).
 
     Returns:
-        (vulns, packages) — two lists of dicts
+        (vulns, packages) — two lists of dicts. Empty if the API call
+        failed or the host has nothing to report.
     """
     rv = csw_api.make_request("GET", f"/openapi/v1/workload/{uuid}/vulnerabilities")
     vulns = rv.get("data", []) if rv.get("status") == 200 else []

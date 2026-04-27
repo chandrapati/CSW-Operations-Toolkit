@@ -2,18 +2,41 @@
 """
 query_long_lived_processes.py — Identify persistent processes across the CSW cluster
 -------------------------------------------------------------------------------------
-Queries the CSW flowsearch API across multiple 24-hour windows and identifies
-processes that appear consistently over time — indicating long-lived services,
-agents, and daemons running on monitored hosts.
 
-The CSW flowsearch API has a maximum query duration of 1 day, so this script
-issues one query per day and aggregates the results across the full window.
+What this script is for (plain English)
+---------------------------------------
+On any given server there are typically two kinds of processes opening
+network connections:
 
-Analysis dimensions:
-  - Days observed (persistence score)
-  - Total flow count per process+host
-  - Destination ports and protocols used
-  - Process categorisation (security agent, monitoring, database, backup, etc.)
+  1. **Long-lived ones** that show up day after day - your database
+     engine, your backup agent, your monitoring daemon, your CSW agent
+     itself. These are the legitimate citizens of the host.
+  2. **Transient ones** - a one-off ``curl``, an admin's interactive SSH
+     session, a deployment script. These come and go.
+
+Anything that's been running quietly for a week and is talking on the
+network is almost certainly a service you should *know about* - and
+either bless in policy or investigate. Anything you don't recognise
+that's been running for a week is interesting from a threat-hunting
+perspective.
+
+This script answers "which processes have been talking on the network
+every day for the last N days?" by:
+
+  1. Querying CSW flow data one day at a time (CSW limits any single
+     flowsearch to a 24-hour window - explained below).
+  2. Recording which processes appear on which days.
+  3. Aggregating to a single row per (host, process) with a
+     "days-seen" persistence score.
+  4. Categorising each process via regex against the command-line string
+     (security agents, monitoring, databases, backup, etc.).
+  5. Emitting an HTML report and optional JSON dump.
+
+Why one day at a time?
+  CSW's flowsearch API enforces ``t1 - t0 <= 86400`` seconds. To analyse
+  a longer window we issue one query per calendar day and stitch the
+  results together. The shared ``csw_helpers.paginate()`` helper does
+  the per-day pagination loop for us.
 
 Output:
   - Console summary table (always)
@@ -48,6 +71,7 @@ from datetime import datetime, timezone
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import csw_api
+import csw_helpers
 
 # Load .env credentials (CSW_API_URL, CSW_API_KEY, CSW_API_SECRET)
 csw_api._load_dotenv()
@@ -157,44 +181,32 @@ def fetch_day_flows(root_scope, t0, t1, limit):
                     fwd_process_string, rev_process_string, dst_port, proto.
     """
     flows = []
-    offset = ""  # Cursor token for pagination; empty string = first page
-    page = 0
+    body = {
+        "t0": t0,
+        "t1": t1,
+        "filter": {"type": "subnet", "field": "src_address", "value": "0.0.0.0/0"},
+        "scopeName": root_scope,
+    }
 
-    while len(flows) < limit and page < MAX_PAGES_PER_DAY:
-        page += 1
-        body = {
-            "t0": t0,
-            "t1": t1,
-            "filter": {"type": "subnet", "field": "src_address", "value": "0.0.0.0/0"},
-            "scopeName": root_scope,
-            "limit": min(BATCH_SIZE, limit - len(flows)),
-        }
-        if offset:
-            body["offset"] = offset
-
-        r = csw_api.make_request("POST", "/openapi/v1/flowsearch", body=body)
-        if r.get("status") != 200:
-            err = r.get("data", {})
-            msg = err.get("error", str(err)) if isinstance(err, dict) else str(err)
-            print(f"      API error page {page}: HTTP {r.get('status')} — {msg}", file=sys.stderr)
-            break
-
-        data = r.get("data", {})
-        if not isinstance(data, dict):
-            break
-
-        results = data.get("results", [])
+    # csw_helpers.paginate() handles the offset-cursor loop, error
+    # logging, and rate limiting. We add a per-day flow cap (`limit`)
+    # and the MAX_PAGES_PER_DAY safety cap as the loop's exit conditions.
+    for _page, results in csw_helpers.paginate(
+        "POST", "/openapi/v1/flowsearch",
+        body=body,
+        batch_size=BATCH_SIZE,
+        max_pages=MAX_PAGES_PER_DAY,
+        sleep=0.15,
+    ):
         if not results:
             break
-
         flows.extend(results)
-
-        if len(results) < BATCH_SIZE or not data.get("offset"):
+        if len(flows) >= limit:
             break
-        offset = data.get("offset", "")
-        time.sleep(0.15)
 
-    return flows
+    # Trim to the requested per-day limit. May fetch up to BATCH_SIZE
+    # extra rows on the last page; acceptable trade for simpler code.
+    return flows[:limit]
 
 
 def fetch_multi_day_flows(root_scope, days, limit_per_day):

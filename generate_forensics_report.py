@@ -2,20 +2,46 @@
 """
 generate_forensics_report.py — CSW Forensics Posture Assessment Report
 -----------------------------------------------------------------------
-Combines forensics configuration data with live agent telemetry to produce
-a comprehensive security posture report that answers three questions:
 
-  1. WHAT are we watching for?  (forensic rules & profiles)
-  2. WHERE are we watching?     (agent coverage & OS distribution)
-  3. WHAT are we missing?       (MITRE ATT&CK coverage gaps)
+What this script is for (plain English)
+---------------------------------------
+Beyond network telemetry, the CSW agent can also watch what's happening
+*inside* each host: process executions, file changes, registry edits,
+privilege escalations, and so on. This is called the **forensics**
+feature, and it's the host-based detection layer (think EDR-lite).
 
-The report correlates:
-  - Forensic profiles, rules, and intents from the config API
-  - Agent deployment data (forensics enablement, OS, versions)
-  - MITRE ATT&CK framework mapping with tactic classification
-  - Coverage gap analysis against commonly exploited techniques
-  - Rule detection logic summaries (parsed from clause_chips)
-  - Kill chain stage mapping for executive-level risk summary
+Forensics is configured with three building blocks:
+
+  * **Forensic Rules**: a single detection pattern. Example: "alert when
+    a process writes to ``/etc/cron.d``" or "alert when ``regsvr32.exe``
+    spawns ``cmd.exe``".
+  * **Forensic Profiles**: a bundle of rules grouped together. You apply
+    a profile to a set of hosts rather than rule-by-rule. Example: a
+    "Windows Server" profile might contain 80 Windows-specific rules.
+  * **Forensic Intents**: the binding between a profile and a set of
+    agents - "apply the Windows Server profile to all hosts in scope X".
+
+Each rule is typically tagged with one or more **MITRE ATT&CK** technique
+IDs (``T1003``, ``T1059``, etc.). MITRE ATT&CK is the industry-standard
+catalogue of attacker techniques, organised by **tactic** (the
+attacker's goal at that step: ``Initial Access``, ``Execution``,
+``Persistence``, ``Lateral Movement``, etc.). Mapping rules to MITRE
+lets you reason about coverage: "we have 12 rules for Execution but
+zero for Lateral Movement - that's a gap".
+
+This script answers three questions for the customer:
+
+  1. **WHAT are we watching for?** - inventory the configured rules,
+     profiles, and intents.
+  2. **WHERE are we watching?** - how many agents have forensics turned
+     on, broken down by OS / version.
+  3. **WHAT are we missing?** - intersect the rules with the MITRE
+     taxonomy below to highlight kill-chain stages with little or no
+     coverage.
+
+The big ``MITRE_TACTICS`` dictionary further down maps technique IDs to
+``(tactic, kill-chain-stage-label)`` so the gap analysis can summarise
+coverage in language an executive will recognise.
 
 Data sources:
   - /openapi/v1/inventory_config/forensic_profiles (profiles + embedded rules)
@@ -46,6 +72,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import csw_api
+import csw_helpers
 
 csw_api._load_dotenv()
 
@@ -155,14 +182,7 @@ def fetch_all():
     print(f" {len(result['intents'])}", file=sys.stderr)
 
     print("  [4/4] Fetching agent telemetry...", file=sys.stderr, end="", flush=True)
-    r = csw_api.make_request("GET", "/openapi/v1/sensors")
-    sensors_data = r.get("data", {}) if r.get("status") == 200 else {}
-    if isinstance(sensors_data, dict):
-        result["sensors"] = sensors_data.get("results", [])
-    elif isinstance(sensors_data, list):
-        result["sensors"] = sensors_data
-    else:
-        result["sensors"] = []
+    result["sensors"] = csw_helpers.fetch_all_sensors()
     print(f" {len(result['sensors'])}", file=sys.stderr)
 
     return result

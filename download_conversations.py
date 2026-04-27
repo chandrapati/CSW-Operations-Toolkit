@@ -2,22 +2,59 @@
 """
 download_conversations.py — Download all conversations from a CSW workspace
 ---------------------------------------------------------------------------
-Conversations are network flows that have been matched to ADM-generated
-policies within a workspace.  Each conversation record includes the
-src/dst IP pair, protocol, port, byte/packet counts, policy filter IDs,
-and the ADM confidence score.
 
-The script paginates through the CSW conversations API in batches of 500,
-collects all records, and saves the full result set as JSON.  A quick
-statistical summary (protocol distribution, top ports) is printed at the end.
+What this script is for (plain English)
+---------------------------------------
+"Conversation" is a CSW-specific word that confuses everybody at first.
+Here is the mental model:
 
-Usage:
+  * A **flow** is one network connection: source IP, destination IP,
+    destination port, protocol. Your servers generate millions of these
+    every day.
+  * Many flows are essentially the same conversation repeated over and
+    over (e.g. ``app-server -> db-server : tcp/5432`` happens hundreds of
+    times an hour). Logging each one separately would be useless.
+  * CSW's **ADM** (Application Dependency Mapping) groups all those
+    repeated flows into a single **conversation** record. One row per
+    "who-talked-to-who-on-which-port", with byte/packet/flow totals
+    aggregated.
+
+So a conversation is a *deduplicated, summarized* flow record - the kind
+of thing you actually want to look at when designing segmentation policy
+or auditing what an application does.
+
+A few more terms you will meet:
+
+  * **Workspace** (sometimes "Application" in the API): a folder for
+    grouping policy rules. Inside a workspace, ADM produces a set of
+    conversations and proposes rules for them.
+  * **ADM version**: every time ADM is re-run on a workspace it produces
+    a new numbered version. The conversations API requires you to pick
+    one; this script uses the latest by default.
+
+Why download them?
+  * Build offline reports / spreadsheets your customer can review.
+  * Diff against a snapshot from last month to see drift.
+  * Feed them into other analysis tooling.
+
+How the script works
+--------------------
+  1. Look up the workspace by name (or accept an ID directly).
+  2. Find its latest ADM version (or accept a specific one).
+  3. Page through the conversations API 500 records at a time, using the
+     shared ``csw_helpers.paginate()`` helper, until everything is
+     collected.
+  4. Save the lot as a single JSON file under ``snapshots/``.
+
+Usage
+-----
     python3 download_conversations.py --workspace "MyWorkspace"
     python3 download_conversations.py --app-id <workspace_id>  # direct ID
     python3 download_conversations.py --version 3              # specific ADM version
     python3 download_conversations.py --out snapshots/custom.json
 
-Output:
+Output
+------
     snapshots/conversations-<workspace>-<date>.json
 """
 
@@ -25,11 +62,11 @@ import argparse
 import json
 import os
 import sys
-import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import csw_api
+import csw_helpers
 
 csw_api._load_dotenv()
 
@@ -42,8 +79,13 @@ BATCH_SIZE = 500
 def find_workspace(name: str) -> dict:
     """Look up a workspace (application) by name.
 
-    Performs a case-insensitive match against the list of all workspaces
-    in the cluster and returns the first match.
+    The CSW API only knows workspaces by their numeric ID, but humans
+    name them. So we list every workspace, find the one whose name
+    matches (case-insensitive), and return its full record - including
+    the ID we'll need for subsequent calls.
+
+    Exits with a helpful list of available workspace names if the lookup
+    fails - much friendlier than a stack trace.
     """
     r = csw_api.make_request("GET", "/openapi/v1/applications")
     if r.get("status") != 200:
@@ -62,8 +104,13 @@ def find_workspace(name: str) -> dict:
 def get_latest_version(app_id: str) -> int:
     """Retrieve the latest ADM version number for a workspace.
 
-    The conversations API requires an explicit ADM version.  This fetches
-    the workspace details and returns the latest_adm_version field.
+    Why this matters: every time ADM is re-run on a workspace, it
+    produces a new numbered version (1, 2, 3, ...). Older versions stay
+    around so you can compare them. The conversations API insists on
+    knowing *which* version you want.
+
+    99% of the time you want the latest, so that's what we default to.
+    Pass ``--version 3`` to the CLI if you want an older one.
     """
     r = csw_api.make_request("GET", f"/openapi/v1/applications/{app_id}")
     if r.get("status") != 200:
@@ -75,54 +122,25 @@ def get_latest_version(app_id: str) -> int:
 def download_all_conversations(app_id: str, version: int) -> list:
     """Paginate through the conversations API and collect all records.
 
-    The API uses cursor-based pagination: each response includes an opaque
-    "offset" token that must be passed in the next request to fetch the
-    next batch.  Pagination ends when fewer than BATCH_SIZE results are
-    returned or no offset token is present.
+    Uses the shared ``csw_helpers.paginate()`` helper, which handles the
+    offset-cursor loop, rate limiting, and graceful error termination.
+    Caller retains full control over progress display.
     """
     all_convos = []
-    offset = None
-    page = 0
 
-    while True:
-        page += 1
-        body = {"version": version, "limit": BATCH_SIZE}
-        if offset:
-            body["offset"] = offset
-
-        r = csw_api.make_request(
-            "POST",
-            f"/openapi/v1/conversations/{app_id}",
-            body=body,
-        )
-
-        if r.get("status") != 200:
-            print(f"\n  API error on page {page}: HTTP {r.get('status')}")
-            err = r.get("data", {})
-            if isinstance(err, dict):
-                print(f"      {err.get('error', err)}")
-            break
-
-        data = r.get("data", {})
-        results = data.get("results", [])
+    for page, results in csw_helpers.paginate(
+        "POST",
+        f"/openapi/v1/conversations/{app_id}",
+        body={"version": version},
+        batch_size=BATCH_SIZE,
+        sleep=0.15,
+    ):
         all_convos.extend(results)
-
-        batch_count = len(results)
         print(
-            f"\r  Page {page}: +{batch_count} conversations "
+            f"\r  Page {page}: +{len(results)} conversations "
             f"(total: {len(all_convos)})",
             end="", flush=True,
         )
-
-        if batch_count < BATCH_SIZE:
-            break
-
-        offset = data.get("offset")
-        if not offset:
-            break
-
-        # Gentle rate-limiting to avoid overloading the API
-        time.sleep(0.15)
 
     print()
     return all_convos
@@ -182,10 +200,11 @@ def main():
         print("  No conversations found.")
         return
 
-    # Sanitize workspace name for use in filenames
-    safe_name = ws_name.replace(":", "_").replace(" ", "_")
+    # Sanitize workspace name for use in filenames (handles colons,
+    # whitespace, slashes, and other filesystem-unfriendly characters)
     out_path = (
-        args.out or f"snapshots/conversations-{safe_name}-{DATE_TAG}.json"
+        args.out
+        or f"snapshots/conversations-{csw_helpers.safe_filename(ws_name)}-{DATE_TAG}.json"
     )
     with open(out_path, "w") as f:
         json.dump(convos, f, indent=2)
