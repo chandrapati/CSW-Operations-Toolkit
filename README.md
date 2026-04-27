@@ -3,9 +3,9 @@
 Reusable toolkit for **Cisco Secure Workload (CSW / Tetration)** Proof-of-Value engagements.
 Clone this repository at the start of every new POV and follow the quick-start guide below.
 
-The toolkit provides **14 Python scripts** that cover the full POV lifecycle:
+The toolkit provides **15 Python scripts** that cover the full POV lifecycle:
 
-> **API validation → data collection → snapshot comparison → HTML reporting → vulnerability assessment**
+> **API validation → data collection → snapshot comparison → HTML reporting → vulnerability assessment → executive summary**
 
 - No external dependencies (pure Python 3.8+ standard library)
 - HMAC-SHA256 authenticated API client
@@ -285,6 +285,53 @@ python3 query_long_lived_processes.py --no-html                # console-only
 
 **Output:** `reports/long-lived-processes-<date>.html` + optional JSON export.
 
+### 14. `generate_executive_report.py` — CISO-grade one-page summary
+
+Aggregates a `cluster_snapshot.py` JSON file (offline) **or** runs the snapshot
+live, then folds in any companion reports it finds (vulnerability CSV,
+conversations JSON, policies JSON, etc.) into a single executive-grade
+deliverable. Produces both a customer-facing HTML one-pager and a Markdown
+twin (engineering record / version-controllable). Designed to be the
+artefact an SE leaves with the customer's leadership at the end of a POV.
+
+The report includes:
+
+- **Executive summary (TL;DR)** in business language
+- **KPI strip**: workloads, enforcement %, visibility %, blast-radius score,
+  Critical+High CVEs, forensics coverage
+- **Posture scorecard** (4 indicators, each with a score bar)
+- **Prioritized recommendations** with priority, business impact, action,
+  owner role, and time horizon
+- **Visibility / Enforcement / Segmentation** detail tables
+- **Vulnerability section** when a vuln CSV is present (top hosts + top CVEs)
+- **East-west traffic & risky exposures** section when flow data is present
+- **Data sources / methodology** footer (which artefacts were aggregated)
+
+```bash
+# Default: live snapshot + auto-aggregate any companion reports on disk
+python3 generate_executive_report.py
+
+# Reuse an existing snapshot (offline, fast, deterministic)
+python3 generate_executive_report.py \
+    --snapshot snapshots/snapshot-2026-04-20.json \
+    --no-fetch-live \
+    --prepared-for "ACME Corp" --prepared-by "CSW POV Team"
+
+# Force a fresh live snapshot even if one exists
+python3 generate_executive_report.py --refresh
+
+# Pin output paths and skip the HTML / Markdown twin
+python3 generate_executive_report.py \
+    --out-md reports/exec-summary-acme.md --md-only
+```
+
+**Outputs:**
+- `reports/executive-summary-<date>.html` — customer-facing one-page HTML
+- `reports/executive-summary-<date>.md` — version-controllable Markdown
+
+> Re-run monthly. The blast-radius score and CVE counts are most useful
+> as a trend line. Pair with `cluster_delta.py` between snapshots.
+
 ---
 
 ## Typical POV Workflow
@@ -310,6 +357,11 @@ Week 4+ — Progress / Delta
   ├── cluster_snapshot.py            # new snapshot
   ├── cluster_delta.py --latest      # markdown change summary
   └── generate_combined_report.py --latest   # baseline vs current HTML
+
+Closeout — Executive deliverable
+  └── generate_executive_report.py            # one-page CISO summary
+                                              # (HTML + Markdown, aggregates
+                                              # vuln CSV, policies, flows)
 ```
 
 ---
@@ -339,6 +391,7 @@ CSW_POV_Template/
 ├── generate_flow_analysis.py    # Live deep flow analysis HTML
 ├── generate_vuln_report.py      # Vulnerability HTML + CSV
 ├── generate_forensics_report.py # Forensics posture HTML
+├── generate_executive_report.py # CISO-grade exec summary (HTML + Markdown)
 ├── query_long_lived_processes.py # Process persistence HTML + JSON
 │
 ├── reports/                  # Generated HTML / Markdown reports (git-tracked)
