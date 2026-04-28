@@ -23,3 +23,7 @@ snapshots/*.json
 # IDE
 .vscode/
 .idea/
+
+# Risky-port audit outputs (contain customer scope names — keep local)
+snapshots/risky-port-audit.md
+reports/risky-port-audit-*.html
