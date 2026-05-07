@@ -29,7 +29,7 @@ attacker's goal at that step: ``Initial Access``, ``Execution``,
 lets you reason about coverage: "we have 12 rules for Execution but
 zero for Lateral Movement - that's a gap".
 
-This script answers three questions for the customer:
+This script answers three questions for the engagement team:
 
   1. **WHAT are we watching for?** - inventory the configured rules,
      profiles, and intents.

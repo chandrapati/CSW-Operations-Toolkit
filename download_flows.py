@@ -20,8 +20,8 @@ when planning microsegmentation policy. It does this by:
      **provider scope B** (terms explained below).
   2. Paginating through the results 100 at a time (the helper
      ``csw_helpers.paginate()`` handles the loop).
-  3. Writing the lot to a CSV file under ``snapshots/`` so the customer
-     can open it in Excel.
+  3. Writing the lot to a CSV file under ``snapshots/`` for spreadsheet
+     review and offline analysis.
 
 Key terms
 ---------

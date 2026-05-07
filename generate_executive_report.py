@@ -68,9 +68,9 @@ Usage
     # Reuse an existing snapshot, skip live API call
     python3 generate_executive_report.py --snapshot snapshots/snapshot-2026-04-20.json
 
-    # Customer-named report, MD only
+    # Recipient-named report, MD only
     python3 generate_executive_report.py \\
-        --prepared-for "ACME Corp" --prepared-by "CSW POV Team" --md-only
+        --prepared-for "Engagement Stakeholders" --prepared-by "CSW POV Team" --md-only
 
 Requirements
 ------------
@@ -1226,7 +1226,7 @@ def render_html(metrics: dict, snapshot: dict, companions: dict,
         snapshot_ts=m["snapshot_ts"],
         snapshot_path=str(header_info.get("snapshot_path", "—")),
         root_scope=m["root_scope"],
-        prepared_for=header_info.get("prepared_for", "Customer"),
+        prepared_for=header_info.get("prepared_for", "Engagement Stakeholders"),
         prepared_by=header_info.get("prepared_by", "CSW POV Team"),
         generated=header_info.get("generated"),
         tldr_html=tldr,
@@ -1460,8 +1460,8 @@ def main():
                        help="Only write the Markdown output.")
 
     cover = ap.add_argument_group("Cover info")
-    cover.add_argument("--prepared-for", default="Customer",
-                       help="Customer/recipient name on the report cover.")
+    cover.add_argument("--prepared-for", default="Engagement Stakeholders",
+                       help="Recipient name on the report cover.")
     cover.add_argument("--prepared-by", default="CSW POV Team",
                        help="Name of the SE/team producing the report.")
 

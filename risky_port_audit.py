@@ -70,7 +70,7 @@ Quick troubleshooting
   `app_policy_management` capability. Recreate the key in the CSW UI.
 * HTTP 403 on /openapi/v1/inventory/search → API key is missing the
   `flow_inventory_query` capability.
-* "0 CDE-tagged workloads" → either DR Horton's environment has no PCI tag
+* "0 CDE-tagged workloads" → either the environment has no PCI tag
   yet, or the field/value differ. Pass `--pci-field user_<your_label>
   --pci-value <value>` (or set CSW_PCI_FIELD/CSW_PCI_VALUE in `.env`).
 * Findings count seems too high → bump `BROAD_WORKLOAD_THRESHOLD` and

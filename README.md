@@ -9,8 +9,8 @@ The toolkit provides **15 Python scripts** that cover the full POV lifecycle:
 
 - No external dependencies (pure Python 3.8+ standard library)
 - HMAC-SHA256 authenticated API client
-- Self-contained, shareable HTML reports (no external CSS/JS)
-- Works with both SaaS CSW clusters and on-prem Tetration appliances
+- Shareable HTML reports with inline styling and graceful browser fallbacks
+- Designed for both SaaS CSW clusters and on-prem Tetration appliances
 
 ---
 
@@ -22,7 +22,7 @@ The toolkit provides **15 Python scripts** that cover the full POV lifecycle:
 4. [Script Reference](#script-reference)
 5. [Typical POV Workflow](#typical-pov-workflow)
 6. [Project Structure](#project-structure)
-7. [Customisation for Your POV](#customisation-for-your-pov)
+7. [Customization for Your POV](#customization-for-your-pov)
 8. [Troubleshooting](#troubleshooting)
 9. [Security Notes](#security-notes)
 
@@ -31,9 +31,9 @@ The toolkit provides **15 Python scripts** that cover the full POV lifecycle:
 ## Quick Start
 
 ```bash
-# 1. Clone the template for a specific customer
-git clone https://github.com/chandrapati/CSW_POV_Template.git MyCustomer_CSW_POV
-cd MyCustomer_CSW_POV
+# 1. Clone the template for a new engagement
+git clone https://github.com/chandrapati/CSW_POV_Template.git csw-pov-engagement
+cd csw-pov-engagement
 
 # 2. (Recommended) isolated Python environment
 python3 -m venv .venv
@@ -92,7 +92,7 @@ Copy `.env.example` to `.env` and fill in:
 
 | Variable | Required | Description |
 |---|---|---|
-| `CSW_API_URL` | yes | Cluster base URL, e.g. `https://customer.tetrationcloud.com` (no trailing `/openapi`) |
+| `CSW_API_URL` | yes | Cluster base URL, e.g. `https://your-cluster.tetrationcloud.com` (no trailing `/openapi`) |
 | `CSW_API_KEY` | yes | API key identifier (hex string) |
 | `CSW_API_SECRET` | yes | Paired secret (hex string) |
 | `CSW_VERIFY_SSL` | no | `true` by default. Set to `false` for self-signed clusters or corporate TLS inspection |
@@ -104,235 +104,74 @@ Copy `.env.example` to `.env` and fill in:
 
 ## Script Reference
 
-All scripts are invoked directly via `python3 <script>.py [options]` and print `--help` when called with `-h`.
+All runnable tools are invoked with `python3 <script>.py [options]` and print `--help` when called with `-h`. The toolkit has **15 runnable tools** and **2 shared modules**.
 
-### Core client (not run directly)
+### Shared modules and API helper
 
-| Script | Purpose |
-|---|---|
-| `csw_api.py` | HMAC-SHA256 authenticated API client. Loads `.env`, signs every request, handles pagination. All other scripts `import csw_api` from this module. |
+| File | What it can do | Highlights | Typical use |
+|---|---|---|---|
+| `csw_api.py` | Provides the common CSW OpenAPI client and can also run one-off API calls from the CLI. | Loads `.env`, signs requests with HMAC-SHA256, supports query parameters and JSON request bodies, returns parsed JSON with status/error details. | Use directly for ad-hoc API checks, or import from other scripts. |
+| `csw_helpers.py` | Provides reusable helper functions for collection scripts. | Pagination generator, sensor enumeration, IP-to-sensor mapping, safe filename generation, response-shape normalization, CSV-safe field flattening, and shared agent-type constants. | Import from new scripts before duplicating pagination, sensor lookup, or filename logic. |
 
-Direct CLI usage example (for ad-hoc API debugging):
+Direct API debugging examples:
 
 ```bash
 python3 csw_api.py GET /openapi/v1/app_scopes
 python3 csw_api.py GET /openapi/v1/sensors --limit 50 --offset 0
 python3 csw_api.py POST /openapi/v1/inventory/search '{"filter":{"type":"eq","field":"os","value":"windows"}}'
+python3 csw_helpers.py   # helper self-test; no API call required
 ```
 
-### 1. `api_test_suite.py` — validate API access
+### Runnable tools
 
-Probes every major API endpoint and writes a Markdown compatibility matrix.
+| Script | What it can do | Highlights | Outputs |
+|---|---|---|---|
+| `api_test_suite.py` | Validates API reachability and API-key capability coverage across the major endpoint groups used by the toolkit. | Dynamically discovers the root scope, tests agent/scope/policy/flow/vulnerability-style access paths, supports `--quick` and `--category`, and writes pass/warn/fail notes for missing capabilities or unsupported endpoints. | Console report or Markdown via `--output reports/api-capabilities.md`. |
+| `cluster_snapshot.py` | Captures a point-in-time cluster baseline. | Collects sensors, scopes, workspaces, policies, inventory, and recent flows; supports JSON-only, Markdown-only, alternate output directory, and `--skip-flows` when flow capability is unavailable. | `snapshots/snapshot-<date>.json` and `snapshots/snapshot-<date>.md`. |
+| `cluster_delta.py` | Compares two cluster snapshots. | Auto-selects the two newest snapshots with `--latest`, highlights agent additions/removals, scope/workspace/policy changes, and inventory drift. | Markdown delta report to stdout or `--output reports/weekly-delta.md`. |
+| `generate_html_report.py` | Turns one snapshot into a self-contained HTML readout. | Uses the newest snapshot by default, summarizes visibility/enforcement posture, scope tree, flows, and risky-port exposure without external CSS/JS dependencies. | `reports/readout-<date>.html` or a custom `--out` path. |
+| `generate_combined_report.py` | Builds a baseline-vs-current HTML report. | Combines current snapshot posture with change deltas; can auto-pick newest two snapshots or accept explicit baseline/current files. | Combined HTML report via `--out`, or date-based default. |
+| `download_conversations.py` | Exports ADM workspace conversations. | Resolves workspace name or accepts an application ID, selects latest or specified ADM version, paginates all conversation records, and summarizes protocols/top ports. | `snapshots/conversations-<workspace>-<date>.json`. |
+| `download_flows.py` | Exports scope-filtered flow records for segmentation analysis. | Filters consumer-scope to provider-scope traffic, excludes NetFlow-only records by default for higher-fidelity process/policy context, supports lookback window, tag, and custom CSV path. | `snapshots/flows-<tag>-<date>.csv`. |
+| `download_policies.py` | Downloads workspace policies and rolls them up with workload scope context. | Collects policies from every workspace, performs inventory lookups for policy scopes, highlights risky ports in reports, and supports Markdown/JSON-only mode with `--no-html`. | `snapshots/policies-<date>.json`, `reports/policy-workload-report-<date>.md`, and HTML. |
+| `download_forensics.py` | Exports forensics configuration from the cluster. | Retrieves forensic profiles, rules, intents, and intent ordering; documents SaaS OpenAPI limits around raw forensic events; supports JSON and HTML outputs. | `snapshots/forensics-config-<date>.json` and `reports/forensics-config-<date>.html`. |
+| `generate_flow_analysis.py` | Queries live flow data and produces a deeper flow-analysis report. | Analyzes verdicts, protocol mix, TCP latency/retransmission signals, TLS versions/ciphers, rejected flows, risky destination ports, scope pairs, host pairs, processes, and users. | `reports/flow-analysis-<date>.html`. |
+| `generate_vuln_report.py` | Builds vulnerability exposure and package-inventory reports from CSW workload data. | Enumerates sensors, queries per-workload vulnerabilities and packages, aggregates severity/CVM fields where present, ranks top CVEs and most affected hosts, and can produce CSV-only output. | `reports/vuln-report-<date>.html` and `reports/vuln-report-<date>.csv`. |
+| `generate_forensics_report.py` | Assesses forensics posture and MITRE ATT&CK coverage. | Uses forensics config and sensor telemetry to show what rules/profiles/intents exist, where forensics is enabled, and which ATT&CK tactics have limited coverage. | `reports/forensics-posture-<date>.html`. |
+| `query_long_lived_processes.py` | Finds processes that repeatedly communicate over multiple days. | Queries flowsearch one day at a time, aggregates `(host, process)` persistence, categorizes common process types, flags sensitive ports, and can export raw JSON. | Console summary, `reports/long-lived-processes-<date>.html`, optional JSON. |
+| `generate_executive_report.py` | Produces an executive summary from a live or saved snapshot plus optional companion reports. | Computes visibility/enforcement KPIs, blast-radius score, vulnerability exposure, forensics readiness, posture scorecards, prioritized recommendations, and methodology/source sections. | `reports/executive-summary-<date>.html` and `.md`, unless `--html-only` or `--md-only` is used. |
+| `risky_port_audit.py` | Audits policy posture for risky ports without changing the cluster. | Read-only checks for broad risky-port allows, east-west risky-port exposure, ADM/draft risky-port candidates, and PCI CDE boundary crossings using configurable label fields. | `snapshots/risky-port-findings.json`, `snapshots/risky-port-audit.md`, and `reports/risky-port-audit-<date>.html`. |
+
+### Example commands
 
 ```bash
-python3 api_test_suite.py                                   # console output
+# API validation
 python3 api_test_suite.py --output reports/api-capabilities.md
-python3 api_test_suite.py --quick                           # skip slow tests
+python3 api_test_suite.py --quick
 python3 api_test_suite.py --category agents flow vulnerabilities
-```
 
-**Output:** `reports/api-capabilities.md` — checklist of every endpoint with status ✅ / ❌ and hints for missing capabilities.
-
-### 2. `cluster_snapshot.py` — full cluster state capture
-
-Captures agents, scopes, workspaces, policies, inventory, and recent flows → JSON snapshot + Markdown summary.
-
-```bash
-python3 cluster_snapshot.py                      # full snapshot
-python3 cluster_snapshot.py --skip-flows         # skip flowsearch if capability is missing
-python3 cluster_snapshot.py --json-only          # JSON only, no Markdown
-python3 cluster_snapshot.py --output-dir /tmp/   # alternate directory
-```
-
-**Outputs:**
-- `snapshots/snapshot-<YYYY-MM-DD>.json` — full machine-readable snapshot
-- `snapshots/snapshot-<YYYY-MM-DD>.md` — human-readable summary
-
-### 3. `generate_html_report.py` — single-snapshot HTML readout
-
-Turns a snapshot JSON into a polished customer-facing HTML readout with tables, charts, and risky-port heatmap.
-
-```bash
-python3 generate_html_report.py                                          # newest snapshot
-python3 generate_html_report.py --snapshot snapshots/snapshot-2026-04-07.json
-python3 generate_html_report.py --out reports/kickoff-readout.html
-```
-
-**Output:** `reports/readout-<YYYY-MM-DD>.html` (self-contained, no external assets).
-
-### 4. `cluster_delta.py` — compare two snapshots
-
-Markdown change log between a baseline and a current snapshot (agents added/removed, new scopes, policy changes, inventory drift).
-
-```bash
-python3 cluster_delta.py --latest                                            # auto-pick two newest
-python3 cluster_delta.py snapshots/baseline.json snapshots/current.json
+# Snapshot and reporting
+python3 cluster_snapshot.py
+python3 cluster_snapshot.py --skip-flows
+python3 generate_html_report.py --snapshot snapshots/snapshot-2026-04-07.json --out reports/kickoff-readout.html
 python3 cluster_delta.py --latest --output reports/weekly-delta.md
-```
-
-### 5. `generate_combined_report.py` — baseline vs current HTML
-
-Combines the full readout + delta into a single HTML report.
-
-```bash
-python3 generate_combined_report.py --latest
-python3 generate_combined_report.py --baseline snapshots/week1.json --current snapshots/week4.json
 python3 generate_combined_report.py --latest --out reports/monthly-review.html
-```
 
-### 6. `download_conversations.py` — workspace conversations
-
-Policy-matched conversations for a workspace (ADM output). Paginates through all records.
-
-```bash
-python3 download_conversations.py --workspace "MyWorkspace"
-python3 download_conversations.py --app-id <workspace_id>      # direct ID lookup
-python3 download_conversations.py --workspace "X" --version 3  # specific ADM version
-python3 download_conversations.py --workspace "X" --out snapshots/x-convos.json
-```
-
-**Output:** `snapshots/conversations-<workspace>-<date>.json` + console summary (protocols, top ports).
-
-### 7. `download_flows.py` — scope-filtered flow export
-
-Downloads raw flows from the `flowsearch` API with a consumer-scope × provider-scope filter, ideal for segmentation analysis.
-
-```bash
-# Typical segmentation analysis
-python3 download_flows.py \
-  --consumer-scope "root:Internal:AppA" \
-  --provider-scope "root:Internal:LegacyDB"
-
-python3 download_flows.py --hours 48                         # 48-hour window
-python3 download_flows.py --include-netflow                  # include NetFlow-sourced flows
-python3 download_flows.py --tag "segmentation-1" --out snapshots/custom.csv
-```
-
-> Edit `DEFAULT_CONSUMER_SCOPE` / `DEFAULT_PROVIDER_SCOPE` at the top of the script to persist the defaults for a given POV.
-
-**Output:** `snapshots/flows-<tag>-<date>.csv` (41 columns — 5-tuple, scope, policy verdicts, process, TLS, latency, threat fields).
-
-### 8. `download_policies.py` — policies + workload roll-up
-
-Downloads every policy from every workspace and builds a Markdown + HTML policy report.
-
-```bash
-python3 download_policies.py
-python3 download_policies.py --no-html                       # Markdown + JSON only
+# Data exports and analysis
+python3 download_conversations.py --workspace "WorkspaceName"
+python3 download_flows.py --consumer-scope "root:Internal:AppA" --provider-scope "root:Internal:LegacyDB"
 python3 download_policies.py --out reports/policy-matrix.html
-```
-
-**Outputs:**
-- `snapshots/policies-<date>.json`
-- `reports/policy-workload-report-<date>.md`
-- `reports/policy-workload-report-<date>.html`
-
-### 9. `download_forensics.py` — forensics configuration
-
-Exports forensics rule configuration and recent alerts.
-
-```bash
-python3 download_forensics.py
-python3 download_forensics.py --no-html
 python3 download_forensics.py --out reports/forensics.html --json-out snapshots/forensics.json
-```
-
-### 10. `generate_flow_analysis.py` — deep live flow analysis
-
-Queries live flow data and renders a deep analysis across 10 dimensions: verdicts, protocols, TCP performance, TLS security, scope pairs, processes, users, etc.
-
-```bash
-python3 generate_flow_analysis.py                            # last 24h, up to 2000 flows
-python3 generate_flow_analysis.py --hours 72 --limit 5000
-python3 generate_flow_analysis.py --out reports/flow-deepdive.html
-```
-
-**Output:** `reports/flow-analysis-<date>.html`.
-
-### 11. `generate_vuln_report.py` — vulnerability assessment
-
-Scans every workload for CVEs and installed packages using the `/workload/{uuid}/vulnerabilities` and `/packages` endpoints. Produces both HTML and CSV.
-
-```bash
-python3 generate_vuln_report.py                              # full scan + HTML
-python3 generate_vuln_report.py --csv-only                   # CSV only (faster turnaround)
+python3 generate_flow_analysis.py --hours 72 --limit 5000 --out reports/flow-deepdive.html
 python3 generate_vuln_report.py --out reports/vuln-kickoff.html
-```
-
-**Outputs:**
-- `reports/vuln-report-<date>.html` — severity breakdown, top CVEs, most-vulnerable hosts, Cisco CVM intelligence
-- `reports/vuln-report-<date>.csv` — one row per (host, CVE) for pivoting in Excel
-
-### 12. `generate_forensics_report.py` — forensics posture
-
-Generates a forensics posture assessment from previously downloaded forensics data.
-
-```bash
-python3 generate_forensics_report.py
 python3 generate_forensics_report.py --out reports/forensics-readout.html
+python3 query_long_lived_processes.py --days 7 --min-days 5 --json
+python3 risky_port_audit.py --use-cache --pci-field user_pci_scope --pci-value true
+
+# Executive closeout
+python3 generate_executive_report.py --snapshot snapshots/snapshot-2026-04-20.json --no-fetch-live --prepared-for "Engagement Stakeholders" --prepared-by "CSW POV Team"
+python3 generate_executive_report.py --out-md reports/exec-summary.md --md-only
 ```
-
-### 13. `query_long_lived_processes.py` — process persistence analysis
-
-Identifies processes that persist across multiple days of flow data (candidates for allow-lists or anomaly investigation).
-
-```bash
-python3 query_long_lived_processes.py                          # last 3 days
-python3 query_long_lived_processes.py --days 7 --min-days 5    # must appear ≥5 of 7 days
-python3 query_long_lived_processes.py --limit 5000 --json      # also export raw JSON
-python3 query_long_lived_processes.py --no-html                # console-only
-```
-
-**Output:** `reports/long-lived-processes-<date>.html` + optional JSON export.
-
-### 14. `generate_executive_report.py` — CISO-grade one-page summary
-
-Aggregates a `cluster_snapshot.py` JSON file (offline) **or** runs the snapshot
-live, then folds in any companion reports it finds (vulnerability CSV,
-conversations JSON, policies JSON, etc.) into a single executive-grade
-deliverable. Produces both a customer-facing HTML one-pager and a Markdown
-twin (engineering record / version-controllable). Designed to be the
-artefact an SE leaves with the customer's leadership at the end of a POV.
-
-The report includes:
-
-- **Executive summary (TL;DR)** in business language
-- **KPI strip**: workloads, enforcement %, visibility %, blast-radius score,
-  Critical+High CVEs, forensics coverage
-- **Posture scorecard** (4 indicators, each with a score bar)
-- **Prioritized recommendations** with priority, business impact, action,
-  owner role, and time horizon
-- **Visibility / Enforcement / Segmentation** detail tables
-- **Vulnerability section** when a vuln CSV is present (top hosts + top CVEs)
-- **East-west traffic & risky exposures** section when flow data is present
-- **Data sources / methodology** footer (which artefacts were aggregated)
-
-```bash
-# Default: live snapshot + auto-aggregate any companion reports on disk
-python3 generate_executive_report.py
-
-# Reuse an existing snapshot (offline, fast, deterministic)
-python3 generate_executive_report.py \
-    --snapshot snapshots/snapshot-2026-04-20.json \
-    --no-fetch-live \
-    --prepared-for "ACME Corp" --prepared-by "CSW POV Team"
-
-# Force a fresh live snapshot even if one exists
-python3 generate_executive_report.py --refresh
-
-# Pin output paths and skip the HTML / Markdown twin
-python3 generate_executive_report.py \
-    --out-md reports/exec-summary-acme.md --md-only
-```
-
-**Outputs:**
-- `reports/executive-summary-<date>.html` — customer-facing one-page HTML
-- `reports/executive-summary-<date>.md` — version-controllable Markdown
-
-> Re-run monthly. The blast-radius score and CVE counts are most useful
-> as a trend line. Pair with `cluster_delta.py` between snapshots.
-
----
 
 ## Typical POV Workflow
 
@@ -343,7 +182,7 @@ Week 0 — Onboarding
   └── cluster_snapshot.py            # baseline snapshot
 
 Week 1 — Initial Readout
-  ├── generate_html_report.py        # customer readout from baseline snapshot
+  ├── generate_html_report.py        # stakeholder readout from baseline snapshot
   ├── download_policies.py           # policy inventory + markdown/HTML report
   └── generate_vuln_report.py        # baseline vulnerability posture
 
@@ -393,6 +232,7 @@ CSW_POV_Template/
 ├── generate_forensics_report.py # Forensics posture HTML
 ├── generate_executive_report.py # CISO-grade exec summary (HTML + Markdown)
 ├── query_long_lived_processes.py # Process persistence HTML + JSON
+├── risky_port_audit.py          # Read-only risky-port policy audit
 │
 ├── reports/                  # Generated HTML / Markdown reports (git-tracked)
 │   └── .gitkeep
@@ -430,20 +270,20 @@ python3 csw_helpers.py
 
 ---
 
-## Customisation for Your POV
+## Customization for Your POV
 
-1. **Clone and rename** for the customer:
+1. **Clone and rename** for the engagement:
    ```bash
-   git clone https://github.com/chandrapati/CSW_POV_Template.git MyCustomer_CSW_POV
-   cd MyCustomer_CSW_POV
+   git clone https://github.com/chandrapati/CSW_POV_Template.git csw-pov-engagement
+   cd csw-pov-engagement
    rm -rf .git && git init                       # start a fresh history
    ```
-2. **Fill in `.env`** with the customer's cluster URL / API key / secret.
+2. **Fill in `.env`** with the CSW cluster URL / API key / secret.
 3. **(Optional) Hard-code defaults** for scripts you will run repeatedly:
    - `download_flows.py` → set `DEFAULT_CONSUMER_SCOPE`, `DEFAULT_PROVIDER_SCOPE`, `DEFAULT_ROOT_SCOPE`
    - `download_policies.py` → adjust workspace keyword filters if you only want a subset
 4. **Run the scripts** in the workflow order above.
-5. **Commit reports** (but never `.env`) to your customer-specific repo for tracking.
+5. **Commit reports** (but never `.env`) to the engagement repo for tracking.
 
 ---
 
@@ -465,7 +305,7 @@ python3 csw_helpers.py
 - **Never commit `.env`, `credentials.json`, or any file containing API keys.** `.gitignore` excludes them by default — do not remove those rules.
 - **Scope API keys narrowly.** Use read-only capabilities for POV work. Re-generate keys at the end of every engagement.
 - **Keep `CSW_VERIFY_SSL=true`** in production. Only disable it when dealing with an internal CA that cannot be installed locally.
-- **Snapshot JSONs** (`snapshots/*.json`) may contain sensitive inventory data (internal IPs, hostnames, CVEs). Commit selectively or keep the directory git-ignored in customer-specific clones.
+- **Snapshot JSONs** (`snapshots/*.json`) may contain sensitive inventory data (internal IPs, hostnames, CVEs). Commit selectively or keep the directory git-ignored in engagement-specific clones.
 - **Rotate the API key** if this template is ever pushed to a public repo with credentials still present — treat the key as compromised.
 - **HMAC signatures** in `csw_api.py` follow Cisco's canonical format (`METHOD\nPATH\nCHECKSUM\nCONTENT-TYPE\nTIMESTAMP\n`) — do not modify the signing routine without consulting the CSW OpenAPI reference.
 
@@ -473,4 +313,4 @@ python3 csw_helpers.py
 
 ## License & Attribution
 
-Internal Cisco TME toolkit. Intended for POV / PoC engagements only — not a supported Cisco product.
+Reusable Cisco Secure Workload POV / PoC toolkit. Not a supported Cisco product.

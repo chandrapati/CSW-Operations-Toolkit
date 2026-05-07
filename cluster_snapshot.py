@@ -14,7 +14,7 @@ Usage:
 
 Credentials are read from .env (copy .env.example → .env and fill in values).
 
-Key fixes vs. original TME version (informed by ACME SaaS cluster testing):
+Compatibility notes from SaaS and on-prem API validation:
   - Root scope is discovered dynamically instead of hardcoded to "Default"
   - Inventory search bodies do NOT include "offset" (breaks on some SaaS clusters)
   - Flow search uses epoch integer timestamps + scopeName (not "now-1h" strings)

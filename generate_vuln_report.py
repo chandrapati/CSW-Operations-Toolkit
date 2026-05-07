@@ -14,7 +14,7 @@ is "host X has package Y, package Y has known flaw Z, here's the
 severity".
 
 This script pulls all of that data via the API, aggregates it, and
-produces a customer-ready report. It is the answer to "give me a
+produces a stakeholder-ready report. It is the answer to "give me a
 spreadsheet of every vulnerable thing in my fleet, ranked by how scary
 it is".
 

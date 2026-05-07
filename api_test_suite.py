@@ -14,7 +14,7 @@ Usage:
 
 Credentials are read from .env (copy .env.example → .env and fill in values).
 
-Key fixes vs. TME version (informed by ACME SaaS cluster testing):
+Compatibility notes from SaaS and on-prem API validation:
   - Root scope is discovered dynamically before running inventory tests
   - Inventory search bodies do NOT include "offset" (breaks on some SaaS clusters)
   - Flow search uses epoch integer timestamps + scopeName + non-empty filter
@@ -252,7 +252,7 @@ def tests_workspaces(quick=False):
 def tests_flow_search(root_scope_name="Default"):
     """Flow search tests.
 
-    IMPORTANT fixes based on ACME SaaS cluster testing:
+    IMPORTANT compatibility notes from SaaS and on-prem API validation:
       1. Use epoch integer timestamps, NOT "now-1h" strings (causes HTTP 400)
       2. Always supply scopeName (required field on SaaS)
       3. Filter must be non-empty — empty 'and' clause causes HTTP 400

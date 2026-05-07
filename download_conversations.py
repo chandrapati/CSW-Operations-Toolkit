@@ -33,7 +33,7 @@ A few more terms you will meet:
     one; this script uses the latest by default.
 
 Why download them?
-  * Build offline reports / spreadsheets your customer can review.
+  * Build offline reports / spreadsheets the engagement team can review.
   * Diff against a snapshot from last month to see drift.
   * Feed them into other analysis tooling.
 
