@@ -44,7 +44,7 @@ The toolkit provides **15 Python scripts** covering the full operations lifecycl
 
 ```bash
 # 1. Clone for a new engagement or environment
-git clone https://github.com/chandrapati/CSW_POV_Template.git csw-ops
+git clone https://github.com/chandrapati/CSW-Operations-Toolkit.git csw-ops
 cd csw-ops
 
 # 2. (Recommended) isolated Python environment
@@ -250,7 +250,7 @@ On demand
 ## Project Structure
 
 ```
-CSW_POV_Template/
+CSW-Operations-Toolkit/
 ├── .env.example              # Credential template — copy to .env
 ├── .gitignore                # Excludes secrets, caches, large snapshots
 ├── README.md                 # This file
@@ -316,7 +316,7 @@ python3 csw_helpers.py
 
 1. **Clone and rename** for your tenant or engagement:
    ```bash
-   git clone https://github.com/chandrapati/CSW_POV_Template.git csw-ops
+   git clone https://github.com/chandrapati/CSW-Operations-Toolkit.git csw-ops
    cd csw-ops
    rm -rf .git && git init                       # start a fresh history
    ```
