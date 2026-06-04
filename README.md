@@ -1,9 +1,8 @@
-# CSW POV Template
+# Cisco Secure Workload — Operations Toolkit
 
-Reusable toolkit for **Cisco Secure Workload (CSW / Tetration)** Proof-of-Value engagements.
-Clone this repository at the start of every new POV and follow the quick-start guide below.
+A Python script toolkit for **day-2 operations, health monitoring, policy analysis, and reporting** on any Cisco Secure Workload (CSW) tenant — on-prem or SaaS. Also works as a ready-to-clone starter kit for Proof-of-Value (POV) and PoC engagements.
 
-The toolkit provides **15 Python scripts** that cover the full POV lifecycle:
+The toolkit provides **15 Python scripts** covering the full operations lifecycle:
 
 > **API validation → data collection → snapshot comparison → HTML reporting → vulnerability assessment → executive summary**
 
@@ -14,15 +13,28 @@ The toolkit provides **15 Python scripts** that cover the full POV lifecycle:
 
 ---
 
+## When to Use This
+
+| Scenario | Scripts to reach for |
+|---|---|
+| **New POV / PoC kickoff** | `api_test_suite` → `cluster_snapshot` → `generate_html_report` |
+| **Weekly health check** | `cluster_snapshot` → `cluster_delta` → `risky_port_audit` |
+| **Monthly CISO report** | `generate_executive_report` (aggregates vuln, flows, policies) |
+| **Incident / anomaly hunt** | `generate_flow_analysis` → `query_long_lived_processes` → `download_forensics` |
+| **Policy audit** | `download_policies` → `risky_port_audit` → `generate_combined_report` |
+| **Compliance evidence** | `generate_vuln_report` → `generate_forensics_report` → `generate_executive_report` |
+
+---
+
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
 2. [Prerequisites](#prerequisites)
 3. [Configuration](#configuration)
 4. [Script Reference](#script-reference)
-5. [Typical POV Workflow](#typical-pov-workflow)
+5. [Common Usage Patterns](#common-usage-patterns)
 6. [Project Structure](#project-structure)
-7. [Customization for Your POV](#customization-for-your-pov)
+7. [Adapting for Your Environment](#adapting-for-your-environment)
 8. [Troubleshooting](#troubleshooting)
 9. [Security Notes](#security-notes)
 
@@ -31,9 +43,9 @@ The toolkit provides **15 Python scripts** that cover the full POV lifecycle:
 ## Quick Start
 
 ```bash
-# 1. Clone the template for a new engagement
-git clone https://github.com/chandrapati/CSW_POV_Template.git csw-pov-engagement
-cd csw-pov-engagement
+# 1. Clone for a new engagement or environment
+git clone https://github.com/chandrapati/CSW_POV_Template.git csw-ops
+cd csw-ops
 
 # 2. (Recommended) isolated Python environment
 python3 -m venv .venv
@@ -80,7 +92,7 @@ In the CSW UI go to **Settings → API Keys → Create API Key** and enable:
 | `user_role_scope_management` | Scope / user lookups (most scripts) |
 | `external_integration` | Forensics + connector data (`download_forensics`, `generate_forensics_report`) |
 
-> **Tip:** Enable all five for a POV and restrict later once you know what you actually use.
+> **Tip:** Enable all five to start and restrict once you know what you actually use.
 
 ---
 
@@ -163,20 +175,22 @@ python3 download_flows.py --consumer-scope "root:Internal:AppA" --provider-scope
 python3 download_policies.py --out reports/policy-matrix.html
 python3 download_forensics.py --out reports/forensics.html --json-out snapshots/forensics.json
 python3 generate_flow_analysis.py --hours 72 --limit 5000 --out reports/flow-deepdive.html
-python3 generate_vuln_report.py --out reports/vuln-kickoff.html
+python3 generate_vuln_report.py --out reports/vuln-report.html
 python3 generate_forensics_report.py --out reports/forensics-readout.html
 python3 query_long_lived_processes.py --days 7 --min-days 5 --json
 python3 risky_port_audit.py --use-cache --pci-field user_pci_scope --pci-value true
 
-# Executive closeout
-python3 generate_executive_report.py --snapshot snapshots/snapshot-2026-04-20.json --no-fetch-live --prepared-for "Engagement Stakeholders" --prepared-by "CSW POV Team"
+# Executive report
+python3 generate_executive_report.py --snapshot snapshots/snapshot-2026-04-20.json --no-fetch-live --prepared-for "Security Leadership" --prepared-by "CSW Operations Team"
 python3 generate_executive_report.py --out-md reports/exec-summary.md --md-only
 ```
 
-## Typical POV Workflow
+## Common Usage Patterns
+
+### New Engagement / POV Kickoff
 
 ```
-Week 0 — Onboarding
+Day 0 — Setup
   ├── cp .env.example .env           # fill in credentials
   ├── api_test_suite.py              # validate API access + capabilities
   └── cluster_snapshot.py            # baseline snapshot
@@ -201,6 +215,34 @@ Closeout — Executive deliverable
   └── generate_executive_report.py            # one-page CISO summary
                                               # (HTML + Markdown, aggregates
                                               # vuln CSV, policies, flows)
+```
+
+### Day-2 Weekly Operations
+
+```
+Every week
+  ├── cluster_snapshot.py            # new snapshot
+  ├── cluster_delta.py --latest      # drift: new agents, policy changes, scope changes
+  └── risky_port_audit.py --use-cache  # risky port exposure check (read-only)
+```
+
+### Monthly CISO Reporting
+
+```
+Monthly
+  ├── cluster_snapshot.py            # fresh snapshot
+  ├── generate_vuln_report.py        # CVE posture update
+  ├── generate_forensics_report.py   # MITRE ATT&CK coverage review
+  └── generate_executive_report.py   # aggregate everything into one HTML + Markdown report
+```
+
+### Incident / Anomaly Investigation
+
+```
+On demand
+  ├── generate_flow_analysis.py --hours 72   # verdict breakdown, rejected flows, TLS anomalies
+  ├── query_long_lived_processes.py --days 7  # persistent process communicators
+  └── download_forensics.py                   # forensics config + available telemetry
 ```
 
 ---
@@ -270,20 +312,20 @@ python3 csw_helpers.py
 
 ---
 
-## Customization for Your POV
+## Adapting for Your Environment
 
-1. **Clone and rename** for the engagement:
+1. **Clone and rename** for your tenant or engagement:
    ```bash
-   git clone https://github.com/chandrapati/CSW_POV_Template.git csw-pov-engagement
-   cd csw-pov-engagement
+   git clone https://github.com/chandrapati/CSW_POV_Template.git csw-ops
+   cd csw-ops
    rm -rf .git && git init                       # start a fresh history
    ```
 2. **Fill in `.env`** with the CSW cluster URL / API key / secret.
 3. **(Optional) Hard-code defaults** for scripts you will run repeatedly:
    - `download_flows.py` → set `DEFAULT_CONSUMER_SCOPE`, `DEFAULT_PROVIDER_SCOPE`, `DEFAULT_ROOT_SCOPE`
    - `download_policies.py` → adjust workspace keyword filters if you only want a subset
-4. **Run the scripts** in the workflow order above.
-5. **Commit reports** (but never `.env`) to the engagement repo for tracking.
+4. **Run the scripts** in the pattern that fits your use case (see [Common Usage Patterns](#common-usage-patterns)).
+5. **Commit reports** (but never `.env`) to your repo for tracking and audit trails.
 
 ---
 
@@ -303,17 +345,17 @@ python3 csw_helpers.py
 ## Security Notes
 
 - **Never commit `.env`, `credentials.json`, or any file containing API keys.** `.gitignore` excludes them by default — do not remove those rules.
-- **Scope API keys narrowly.** Use read-only capabilities for POV work. Re-generate keys at the end of every engagement.
+- **Scope API keys narrowly.** Use read-only capabilities for reporting and analysis. Re-generate keys after use or when no longer needed.
 - **Keep `CSW_VERIFY_SSL=true`** in production. Only disable it when dealing with an internal CA that cannot be installed locally.
-- **Snapshot JSONs** (`snapshots/*.json`) may contain sensitive inventory data (internal IPs, hostnames, CVEs). Commit selectively or keep the directory git-ignored in engagement-specific clones.
-- **Rotate the API key** if this template is ever pushed to a public repo with credentials still present — treat the key as compromised.
+- **Snapshot JSONs** (`snapshots/*.json`) may contain sensitive inventory data (internal IPs, hostnames, CVEs). Commit selectively or keep the directory git-ignored in environment-specific clones.
+- **Rotate the API key** if this repo is ever pushed to a public location with credentials present — treat the key as compromised.
 - **HMAC signatures** in `csw_api.py` follow Cisco's canonical format (`METHOD\nPATH\nCHECKSUM\nCONTENT-TYPE\nTIMESTAMP\n`) — do not modify the signing routine without consulting the CSW OpenAPI reference.
 
 ---
 
 ## License & Attribution
 
-Reusable Cisco Secure Workload POV / PoC toolkit. Not a supported Cisco product.
+Cisco Secure Workload operations and automation toolkit. Community-maintained. Not a supported Cisco product.
 
 ---
 
