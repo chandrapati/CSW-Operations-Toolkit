@@ -249,38 +249,30 @@ On demand
 
 ## Project Structure
 
-```
-CSW-Operations-Toolkit/
-├── .env.example              # Credential template — copy to .env
-├── .gitignore                # Excludes secrets, caches, large snapshots
-├── README.md                 # This file
-│
-├── csw_api.py                # Core HMAC API client (imported by all scripts)
-├── csw_helpers.py            # Shared utilities (pagination, sensor map, slugging)
-│
-├── api_test_suite.py         # API capability validation
-├── cluster_snapshot.py       # Full cluster snapshot
-├── cluster_delta.py          # Snapshot diff (Markdown)
-│
-├── download_conversations.py # Conversation export per workspace
-├── download_flows.py         # Scope-filtered flow export (CSV)
-├── download_policies.py      # Policy download + Markdown/HTML report
-├── download_forensics.py     # Forensics config + alert export
-│
-├── generate_html_report.py      # Single-snapshot HTML readout
-├── generate_combined_report.py  # Baseline vs current HTML
-├── generate_flow_analysis.py    # Live deep flow analysis HTML
-├── generate_vuln_report.py      # Vulnerability HTML + CSV
-├── generate_forensics_report.py # Forensics posture HTML
-├── generate_executive_report.py # CISO-grade exec summary (HTML + Markdown)
-├── query_long_lived_processes.py # Process persistence HTML + JSON
-├── risky_port_audit.py          # Read-only risky-port policy audit
-│
-├── reports/                  # Generated HTML / Markdown reports (git-tracked)
-│   └── .gitkeep
-└── snapshots/                # JSON snapshots and CSV exports (partially git-ignored)
-    └── .gitkeep
-```
+- [`.env.example`](./.env.example) — Credential template — copy to .env
+- [`.gitignore`](./.gitignore) — Excludes secrets, caches, large snapshots
+- [`README.md`](./README.md) — This file
+- [`csw_api.py`](./csw_api.py) — Core HMAC API client (imported by all scripts)
+- [`csw_helpers.py`](./csw_helpers.py) — Shared utilities (pagination, sensor map, slugging)
+- [`api_test_suite.py`](./api_test_suite.py) — API capability validation
+- [`cluster_snapshot.py`](./cluster_snapshot.py) — Full cluster snapshot
+- [`cluster_delta.py`](./cluster_delta.py) — Snapshot diff (Markdown)
+- [`download_conversations.py`](./download_conversations.py) — Conversation export per workspace
+- [`download_flows.py`](./download_flows.py) — Scope-filtered flow export (CSV)
+- [`download_policies.py`](./download_policies.py) — Policy download + Markdown/HTML report
+- [`download_forensics.py`](./download_forensics.py) — Forensics config + alert export
+- [`generate_html_report.py`](./generate_html_report.py) — Single-snapshot HTML readout
+- [`generate_combined_report.py`](./generate_combined_report.py) — Baseline vs current HTML
+- [`generate_flow_analysis.py`](./generate_flow_analysis.py) — Live deep flow analysis HTML
+- [`generate_vuln_report.py`](./generate_vuln_report.py) — Vulnerability HTML + CSV
+- [`generate_forensics_report.py`](./generate_forensics_report.py) — Forensics posture HTML
+- [`generate_executive_report.py`](./generate_executive_report.py) — CISO-grade exec summary (HTML + Markdown)
+- [`query_long_lived_processes.py`](./query_long_lived_processes.py) — Process persistence HTML + JSON
+- [`risky_port_audit.py`](./risky_port_audit.py) — Read-only risky-port policy audit
+- [`reports/`](./reports/) — Generated HTML / Markdown reports (git-tracked)
+  - [`.gitkeep`](./reports/.gitkeep)
+- [`snapshots/`](./snapshots/) — JSON snapshots and CSV exports (partially git-ignored)
+  - [`.gitkeep`](./snapshots/.gitkeep)
 
 ### Shared helpers (`csw_helpers.py`)
 
