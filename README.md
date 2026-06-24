@@ -1,5 +1,7 @@
 # Cisco Secure Workload — Operations Toolkit
 
+![Visitors](https://visitor-badge.laobi.icu/badge?page_id=chandrapati.CSW-Operations-Toolkit&left_text=visitors)
+
 A Python script toolkit for **day-2 operations, health monitoring, policy analysis, and reporting** on any Cisco Secure Workload (CSW) tenant — on-prem or SaaS. Also works as a ready-to-clone starter kit for Proof-of-Value (POV) and PoC engagements.
 
 The toolkit provides **15 Python scripts** covering the full operations lifecycle:
