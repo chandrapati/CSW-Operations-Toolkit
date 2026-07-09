@@ -353,7 +353,7 @@ Cisco Secure Workload operations and automation toolkit. Community-maintained. N
 
 ---
 
-## Related Cisco Secure Workload Resources
+## CSW Integration Guides & Resources
 
 | Repository | Description | Best for |
 |------------|-------------|---------|
