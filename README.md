@@ -28,6 +28,14 @@ The toolkit provides **15 Python scripts** covering the full operations lifecycl
 
 ---
 
+## Architecture
+
+![Cisco Secure Workload Operations Toolkit Architecture](csw-operations-architecture.png)
+
+*The toolkit's 15 pure-stdlib Python scripts authenticate to a Secure Workload tenant over the OpenAPI (HMAC-SHA256) to **collect** (snapshots, flows, policies, forensics), **analyze** (deltas, risky-port audit, long-lived processes), and **report** — producing shareable HTML readouts, snapshots/deltas, and executive & vulnerability reports for day-2 operations and POV engagements.*
+
+---
+
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
